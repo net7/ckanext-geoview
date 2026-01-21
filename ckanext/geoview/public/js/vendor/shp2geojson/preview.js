@@ -18,7 +18,8 @@
 var inputData = {},
 geoData = {},
 EPSGUser, url, encoding, EPSG,
-EPSG4326 = proj4('EPSG:4326');
+EPSG4326 = proj4('EPSG:4326'),
+EPSG3857 = proj4('EPSG:3857');
 
 function loadshp(config, returnData) {
     url = config.url;
@@ -30,6 +31,16 @@ function loadshp(config, returnData) {
             proj4.defs([
                 ['EPSG:3821', '+proj=tmerc +ellps=GRS67 +towgs84=-752,-358,-179,-.0000011698,.0000018398,.0000009822,.00002329 +lat_0=0 +lon_0=121 +x_0=250000 +y_0=0 +k=0.9999 +units=m +no_defs']
             ]);
+        
+        // Italian coordinate systems - Define manually with precise TOWGS84 parameters
+        if(EPSG == 3003 || !proj4.defs['EPSG:3003'])
+            proj4.defs('EPSG:3003', '+proj=tmerc +lat_0=0 +lon_0=9 +k=0.9996 +x_0=1500000 +y_0=0 +ellps=intl +towgs84=-104.1,-49.1,-9.9,0.971,-2.917,0.714,-11.68 +units=m +no_defs');
+        if(EPSG == 3004 || !proj4.defs['EPSG:3004'])
+            proj4.defs('EPSG:3004', '+proj=tmerc +lat_0=0 +lon_0=15 +k=0.9996 +x_0=2520000 +y_0=0 +ellps=intl +towgs84=-104.1,-49.1,-9.9,0.971,-2.917,0.714,-11.68 +units=m +no_defs');
+        if(EPSG == 7791 || !proj4.defs['EPSG:7791'])
+            proj4.defs('EPSG:7791', '+proj=utm +zone=32 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs +type=crs');
+        if(EPSG == 6706 || !proj4.defs['EPSG:6706'])
+            proj4.defs('EPSG:6706', '+proj=longlat +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +no_defs +type=crs');
 
         EPSGUser = proj4('EPSG:'+EPSG);
 
@@ -42,11 +53,20 @@ function loadshp(config, returnData) {
                 dbfString = zip.file(/.dbf$/i)[0].name,
                 prjString = zip.file(/.prj$/i)[0];
                 if(prjString) {
-                    proj4.defs('EPSGUSER', zip.file(prjString.name).asText());
-                    try {
-                      EPSGUser = proj4('EPSGUSER');
-                    } catch (e) {
-                      console.error('Unsuported Projection: ' + e);
+                    var prjText = zip.file(prjString.name).asText();
+                    
+                    // For Italian projections, use manual definitions instead of .prj (more accurate)
+                    if (prjText.indexOf('EPSG","3003') !== -1 || prjText.indexOf('Monte Mario / Italy zone 1') !== -1) {
+                        EPSGUser = proj4('EPSG:3003');
+                    } else if (prjText.indexOf('EPSG","3004') !== -1 || prjText.indexOf('Monte Mario / Italy zone 2') !== -1) {
+                        EPSGUser = proj4('EPSG:3004');
+                    } else {
+                        proj4.defs('EPSGUSER', prjText);
+                        try {
+                          EPSGUser = proj4('EPSGUSER');
+                        } catch (e) {
+                          console.error('Unsupported Projection: ' + e);
+                        }
                     }
                 }
 
@@ -65,12 +85,23 @@ function loadshp(config, returnData) {
                 dbfString = zip.file(/.dbf$/i)[0].name,
                 prjString = zip.file(/.prj$/i)[0];
                 if(prjString) {
-		    proj4.defs('EPSGUSER', zip.file(prjString.name).asText());
-		    try {
-		      EPSGUser = proj4('EPSGUSER');
-		    } catch (e) {
-		      console.error('Unsuported Projection: ' + e);
-		    }
+                    var prjText = zip.file(prjString.name).asText();
+                    console.log('[SHP Preview] Found .prj file:', prjText);
+                    
+                    // Check if .prj indicates EPSG:3003 and use manual definition instead
+                    if (prjText.indexOf('EPSG","3003') !== -1 || prjText.indexOf('Monte Mario / Italy zone 1') !== -1) {
+                        console.log('[SHP Preview] .prj indicates EPSG:3003, using manual definition');
+                        // Force EPSG:3003 manual definition (ignoring .prj)
+                        EPSGUser = proj4('EPSG:3003');
+                    } else {
+                        proj4.defs('EPSGUSER', prjText);
+                        try {
+                          EPSGUser = proj4('EPSGUSER');
+                          console.log('[SHP Preview] Using projection from .prj file');
+                        } catch (e) {
+                          console.error('[SHP Preview] Unsupported Projection: ' + e);
+                        }
+                    }
                 }
 
                 SHPParser.load(URL.createObjectURL(new Blob([zip.file(shpString).asArrayBuffer()])), shpLoader, returnData);
