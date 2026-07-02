@@ -266,6 +266,117 @@
                         });
                     });
 
+                    // net7 patch: GetFeatureInfo popup for queryable WMS layers.
+                    // Raster WMS layers carry no client-side geometry, so the
+                    // geo_view shows no popup on click. Here we query the server's
+                    // GetFeatureInfo at the clicked coordinate and render the
+                    // feature attributes in a dedicated overlay popup.
+                    var wmsPopupEl = $("<div class='popupContainer wms-featureinfo'>" +
+                        "<a href='#' class='wms-featureinfo-closer'>&times;</a>" +
+                        "<div class='popupContent'></div></div>")[0];
+                    var wmsPopup = new ol.Overlay({
+                        element: wmsPopupEl,
+                        autoPan: true,
+                        offset: [8, 8]
+                    });
+                    map.addOverlay(wmsPopup);
+                    $(wmsPopupEl).find('.wms-featureinfo-closer').on('click', function(e) {
+                        e.preventDefault();
+                        wmsPopup.setPosition(undefined);
+                    });
+
+                    var renderWMSFeatureInfo = function(contentType, data) {
+                        // Return an HTML fragment for the popup, or null if there
+                        // is no feature under the click.
+                        if (data == null || data === '') return null;
+                        if (contentType && contentType.toLowerCase().indexOf('json') !== -1) {
+                            var json = (typeof data === 'string') ? JSON.parse(data) : data;
+                            var feats = json && json.features;
+                            if (!feats || feats.length === 0) return null;
+                            var html = '';
+                            feats.forEach(function(feat) {
+                                var props = (feat && feat.properties) || {};
+                                var keys = Object.keys(props);
+                                if (keys.length === 0) return;
+                                html += '<table class="wms-featureinfo-table">';
+                                keys.forEach(function(k) {
+                                    var v = props[k];
+                                    html += '<tr><th>' + k + '</th><td>' +
+                                        (v == null ? '' : ('' + v)) + '</td></tr>';
+                                });
+                                html += '</table>';
+                            });
+                            return html || null;
+                        }
+                        // text/html or text/plain: bail out when there is no real
+                        // content (QGIS Server returns an (almost) empty document).
+                        var text = ('' + data).trim();
+                        if (text.replace(/<[^>]*>/g, '').trim().length === 0) return null;
+                        return text;
+                    };
+
+                    map.on('singleclick', function(evt) {
+                        var view = map.getView();
+                        var resolution = view.getResolution();
+                        var projection = view.getProjection();
+
+                        var sources = [];
+                        map.getLayers().forEach(function(layer) {
+                            if (!layer.getVisible || !layer.getVisible()) return;
+                            var source = layer.getSource && layer.getSource();
+                            if (!source || typeof source.getFeatureInfoUrl !== 'function') return;
+                            if (!(source instanceof ol.source.TileWMS ||
+                                  source instanceof ol.source.ImageWMS)) return;
+                            // skip explicitly non-queryable layers
+                            var descr = source.get('mlDescr');
+                            if (descr && (descr.queryable === false ||
+                                          descr.queryable === 0 ||
+                                          descr.queryable === '0')) return;
+                            sources.push(source);
+                        });
+
+                        if (sources.length === 0) return;
+
+                        wmsPopup.setPosition(undefined);
+                        var $content = $(wmsPopupEl).find('.popupContent').empty();
+                        var pending = sources.length;
+                        var anyContent = false;
+
+                        var finalize = function() {
+                            if (--pending > 0) return;
+                            wmsPopup.setPosition(anyContent ? evt.coordinate : undefined);
+                        };
+
+                        sources.forEach(function(source) {
+                            var url = source.getFeatureInfoUrl(
+                                evt.coordinate, resolution, projection,
+                                {
+                                    'INFO_FORMAT': 'application/json',
+                                    'FEATURE_COUNT': 10,
+                                    // QGIS Server tolerances (in px): let clicks
+                                    // near point/line features still hit them.
+                                    // Ignored by other WMS servers.
+                                    'FI_POINT_TOLERANCE': 10,
+                                    'FI_LINE_TOLERANCE': 5,
+                                    'FI_POLYGON_TOLERANCE': 5
+                                });
+                            if (!url) { finalize(); return; }
+                            $.ajax({url: url, dataType: 'text'})
+                                .done(function(data, status, xhr) {
+                                    var ct = (xhr.getResponseHeader('Content-Type')) || 'application/json';
+                                    var html = renderWMSFeatureInfo(ct, data);
+                                    if (html) {
+                                        anyContent = true;
+                                        var title = source.get('name');
+                                        $content.append(
+                                            (title ? ('<div class="wms-featureinfo-title">' + title + '</div>') : '') +
+                                            html);
+                                    }
+                                })
+                                .always(finalize);
+                        });
+                    });
+
 
                     var fragMap = OL_HELPERS.parseKVP((window.parent || window).location.hash && (window.parent || window).location.hash.substring(1));
 
