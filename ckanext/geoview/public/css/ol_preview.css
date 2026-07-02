@@ -133,9 +133,11 @@
  #data-preview .ol-viewport .popupContainer.wms-featureinfo .wms-featureinfo-title {
      font-weight: bold;
      font-size: 13px;
-     margin: 2px 24px 6px 0;
+     margin: 2px 34px 6px 0;
      padding-bottom: 3px;
      border-bottom: 1px solid #e5e4e7;
+     word-break: break-word;
+     overflow-wrap: anywhere;
  }
  #data-preview .ol-viewport .popupContainer.wms-featureinfo .wms-featureinfo-table {
      border-collapse: collapse;
