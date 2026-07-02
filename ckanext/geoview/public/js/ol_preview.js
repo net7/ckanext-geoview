@@ -324,9 +324,12 @@
                         map.getLayers().forEach(function(layer) {
                             if (!layer.getVisible || !layer.getVisible()) return;
                             var source = layer.getSource && layer.getSource();
-                            if (!source || typeof source.getFeatureInfoUrl !== 'function') return;
-                            if (!(source instanceof ol.source.TileWMS ||
-                                  source instanceof ol.source.ImageWMS)) return;
+                            if (!source) return;
+                            // OpenLayers 4.x exposes getGetFeatureInfoUrl; OL 6+
+                            // renamed it to getFeatureInfoUrl. Support both. The
+                            // presence of this method identifies a WMS source.
+                            var fiFn = source.getGetFeatureInfoUrl || source.getFeatureInfoUrl;
+                            if (typeof fiFn !== 'function') return;
                             // skip explicitly non-queryable layers
                             var descr = source.get('mlDescr');
                             if (descr && (descr.queryable === false ||
@@ -348,7 +351,8 @@
                         };
 
                         sources.forEach(function(source) {
-                            var url = source.getFeatureInfoUrl(
+                            var fiFn = source.getGetFeatureInfoUrl || source.getFeatureInfoUrl;
+                            var url = fiFn.call(source,
                                 evt.coordinate, resolution, projection,
                                 {
                                     'INFO_FORMAT': 'application/json',
