@@ -64,7 +64,7 @@
                     }
                 }
 
-                OL_HELPERS.withFeatureTypesLayers(url, layerProcessor, ftName, map, true /* useGET */);
+                return OL_HELPERS.withFeatureTypesLayers(url, layerProcessor, ftName, map, true /* useGET */);
             },
             'wms' : function(resource, proxyUrl, proxyServiceUrl, layerProcessor, map) {
                 var parsedUrl = resource.url.split('#');
@@ -82,7 +82,7 @@
 
                 var url = proxyServiceUrl || getMapUrl;
 
-                OL_HELPERS.withWMSLayers(url, getMapUrl, layerProcessor, layerName, true /* useTiling*/, map );
+                return OL_HELPERS.withWMSLayers(url, getMapUrl, layerProcessor, layerName, true /* useTiling*/, map );
             },
             'wmts' : function(resource, proxyUrl, proxyServiceUrl, layerProcessor, map) {
                 var parsedUrl = resource.url.split('#');
@@ -105,10 +105,32 @@
             }
         }
 
+        // net7 patch: feedback when an OGC service is reachable but publishes
+        // no layer for this resource (e.g. a WFS whose GetCapabilities lists
+        // zero FeatureType). Without this, the map stays silently empty.
+        var showEmptyServiceMessage = function () {
+            if ($('#map-container > .geoview-empty-service').length) return;
+            $('<div class="geoview-empty-service">' +
+                'Il servizio non pubblica alcun layer visualizzabile.' +
+                '</div>').prependTo('#map-container');
+        }
+
         var withLayers = function (resource, proxyUrl, proxyServiceUrl, layerProcessor, map) {
 
-            var withLayers = ckan.geoview.layerExtractors[resource.format && resource.format.toLocaleLowerCase()];
-            withLayers && withLayers(resource, proxyUrl, proxyServiceUrl, layerProcessor, map);
+            var extractor = ckan.geoview.layerExtractors[resource.format && resource.format.toLocaleLowerCase()];
+            if (!extractor) return;
+
+            var result = extractor(resource, proxyUrl, proxyServiceUrl, layerProcessor, map);
+
+            // wfs/wms extractors return a jQuery deferred resolving with the
+            // layers actually added; other extractors return nothing.
+            if (result && typeof result.then === 'function') {
+                result.then(function (layers) {
+                    if (!layers || layers.length === 0) showEmptyServiceMessage();
+                }, function () {
+                    showEmptyServiceMessage();
+                });
+            }
         }
 
         return {
